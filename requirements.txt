@@ -2,6 +2,7 @@ streamlit
 librosa
 matplotlib
 transformers
-torch
 numpy
+pydub
+torch
 soundfile
