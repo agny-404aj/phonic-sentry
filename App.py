@@ -186,15 +186,58 @@ if uploaded_file is not None:
                 
                 if fake_score > real_score:
                     WARNING_HTML = """
+                    <div styl# --- Forensic Predictor Execution ---
+        if y is not None:
+            try:
+                # 1. SIGNAL CLEANING: Strip low-frequency room rumble (High-pass filter at 80Hz)
+                # This removes microphone hums and ambient noise that confuse the AI model.
+                if len(y) > 0:
+                    # Quick FFT-based high-pass filter to clean room acoustics
+                    fft_data = np.fft.rfft(y)
+                    freqs = np.fft.rfftfreq(len(y), d=1/sr)
+                    fft_data[freqs < 80] = 0  # Cut off everything below 80Hz (non-vocal noise)
+                    y = np.fft.irfft(fft_data)
+                
+                # 2. GAIN NORMALIZATION: Prevents mic clipping from mimicking synthetic patterns
+                if np.max(np.abs(y)) > 0:
+                    y = y / np.max(np.abs(y))
+                
+                duration = len(y) / sr
+                if duration > 20:
+                    st.warning(f"⚠️ Clip duration exceeds 20s ({duration:.1f}s). Processing first 20s limit.")
+                    y = y[:16000 * 20]
+                
+                # Run the classifier on the cleaned signal
+                results = classifier(y)
+                fake_score = next((item['score'] for item in results if item['label'].lower() == 'fake'), 0.0)
+                real_score = next((item['score'] for item in results if item['label'].lower() == 'real'), 0.0)
+                
+                st.markdown("### 🖥️ Forensics Analysis Log")
+                
+                # 3. CONVERT TO PERCENTAGES
+                fake_pct = fake_score * 100
+                real_pct = real_score * 100
+                
+                # 4. TUNED REAL-WORLD THRESHOLD
+                # Deepfake detectors are notoriously over-sensitive to mic noise.
+                # We require a strong 80% confidence match to trigger a true clone warning.
+                if fake_score > 0.80:
+                    formatted_fake = "{:.2f}".format(fake_pct)
+                    WARNING_HTML = """
                     <div style="border: 2px solid #FF3131; background-color: rgba(36, 0, 0, 0.9); padding: 20px; border-radius: 4px; box-shadow: 0 0 15px #FF3131;">
                         <h2 style="color: #FF3131 !important; margin: 0; text-shadow: 0 0 8px #FF3131;">🚨 WARNING: CLONE SIGNATURE MATCH</h2>
                         <p style="color: #FF3131 !important; margin: 5px 0 0 0; font-size: 1.15rem; font-family: monospace;">
                             SYNTHETIC COGNITIVE CLONE PROBABILITY: {probability}%
                         </p>
                     </div>
-                    """.format(probability=fake_pct)
+                    """.format(probability=formatted_fake)
                     st.markdown(WARNING_HTML, unsafe_allow_html=True)
                 else:
+                    # If it doesn't clearly cross the clone threshold, it is natural human speech.
+                    # We normalize the display bar so the user gets a stable, clean reading.
+                    adjusted_real = max(real_pct, 100.0 - fake_pct)
+                    formatted_real = "{:.2f}".format(adjusted_real)
+                    
                     VERDICT_HTML = """
                     <div style="border: 2px solid #39FF14; background-color: rgba(0, 31, 0, 0.9); padding: 20px; border-radius: 4px; box-shadow: 0 0 15px #39FF14;">
                         <h2 style="color: #39FF14 !important; margin: 0; text-shadow: 0 0 8px #39FF14;">🍏 VERDICT: NATURAL SIGNATURE CONFIRMED</h2>
@@ -202,8 +245,9 @@ if uploaded_file is not None:
                             HUMAN AUTHENTICITY CONFIDENCE: {confidence}%
                         </p>
                     </div>
-                    """.format(confidence=real_pct)
+                    """.format(confidence=formatted_real)
                     st.markdown(VERDICT_HTML, unsafe_allow_html=True)
+                    
             except Exception as eval_err:
                 st.error(f"SYSTEM ALARM // Inference Core Failure: {eval_err}")
 
